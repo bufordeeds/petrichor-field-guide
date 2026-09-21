@@ -101,6 +101,14 @@ STAT_ALIASES = {
 # across them would be a confident wrong answer. They stay on the item detail.
 
 
+def slug(name: str) -> str:
+    """Stable, filesystem-safe id for an item name; also the icon filename."""
+    out = "".join(c.lower() if c.isalnum() else "-" for c in name)
+    while "--" in out:
+        out = out.replace("--", "-")
+    return out.strip("-")
+
+
 def fetch(module: str) -> str:
     CACHE.mkdir(exist_ok=True)
     cached = CACHE / (module.replace("/", "_") + ".lua")
@@ -266,6 +274,7 @@ def build_items(raw):
         cats = [c for c in (v.get("Category") or []) if c in REAL_CATEGORIES]
         item = {
             "name": name,
+            "icon": slug(name),
             "kind": "item",
             "tier": rarity,
             "id": v.get("ID"),
@@ -297,6 +306,7 @@ def build_equipment(raw):
             continue
         entry = {
             "name": v.get("Name") or name,
+            "icon": slug(v.get("Name") or name),
             "kind": "equipment",
             "tier": rarity,
             "id": v.get("ID"),

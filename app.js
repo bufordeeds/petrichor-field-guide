@@ -340,7 +340,7 @@
     });
     view.appendChild(chips);
 
-    var grid = el('div', { 'class': 'grid', id: 'item-grid' });
+    var grid = el('div', { id: 'item-grid' });
     view.appendChild(grid);
 
     function repaintGrid() {
@@ -355,36 +355,68 @@
         }));
         return;
       }
-      list.forEach(function (entry) { grid.appendChild(itemCard(entry)); });
+      /* Grouped by tier: a flat grid of 227 icons is a wall, and tier is the
+         first thing you sort by in your head anyway. */
+      TIERS.forEach(function (tier) {
+        var rows = list.filter(function (entry) { return entry.tier === tier; });
+        if (!rows.length) return;
+        var tiles = el('div', { 'class': 'igrid' });
+        rows.forEach(function (entry) { tiles.appendChild(itemTile(entry)); });
+        grid.appendChild(el('section', {
+          'class': 'tiergroup', style: '--tier:' + tierColor(tier)
+        }, [
+          el('h2', { 'class': 'tiergroup__h' }, [
+            el('span', { text: tier }),
+            el('span', { 'class': 'tiergroup__n', text: String(rows.length) })
+          ]),
+          tiles
+        ]));
+      });
     }
 
     repaintGrid();
   }
 
-  function itemCard(entry) {
-    var meta = el('div', { 'class': 'card__meta' }, [
-      el('span', { 'class': 'tag', text: entry.tier })
-    ]);
-    if (entry.expansion && entry.expansion !== 'Base game') {
-      meta.appendChild(el('span', { 'class': 'tag tag--dlc', text: dlcShort(entry.expansion) }));
+  /** Where an entry's icon lives — a bundled data URI, or the assets folder. */
+  function iconURL(entry) {
+    if (!entry.icon) return null;
+    if (window.ROR2_ICONS && window.ROR2_ICONS[entry.icon]) {
+      return window.ROR2_ICONS[entry.icon];
     }
-    (entry.categories || []).slice(0, 2).forEach(function (key) {
-      if (CATEGORY_LABEL[key]) {
-        meta.appendChild(el('span', { 'class': 'tag', text: CATEGORY_LABEL[key] }));
-      }
-    });
+    return 'assets/items/' + entry.icon + '.webp';
+  }
 
-    var card = el('button', {
-      'class': 'card', type: 'button',
+  function initials(name) {
+    return name.split(/[\s-]+/).slice(0, 2).map(function (word) {
+      return word.charAt(0).toUpperCase();
+    }).join('');
+  }
+
+  function itemTile(entry) {
+    var label = entry.name + ' — ' + entry.tier;
+    var tile = el('button', {
+      'class': 'tile', type: 'button',
+      title: label, 'aria-label': label,
+      'data-name': entry.name,
       style: '--tier:' + tierColor(entry.tier),
       'aria-current': String(state.selected === entry.name)
-    }, [
-      el('div', { 'class': 'card__name', text: entry.name }),
-      el('div', { 'class': 'card__quote', text: entry.quote || '' }),
-      meta
-    ]);
-    card.addEventListener('click', function () { select(entry.name); });
-    return card;
+    });
+
+    var src = iconURL(entry);
+    if (src) {
+      var img = el('img', { src: src, alt: '', loading: 'lazy', decoding: 'async' });
+      /* A missing icon falls back to initials rather than a broken-image box. */
+      img.addEventListener('error', function () {
+        img.remove();
+        tile.appendChild(el('span', { 'class': 'tile__abbr', text: initials(entry.name) }));
+      });
+      tile.appendChild(img);
+    } else {
+      tile.appendChild(el('span', { 'class': 'tile__abbr', text: initials(entry.name) }));
+    }
+
+    tile.addEventListener('click', function () { select(entry.name); });
+    return tile;
   }
 
   function dlcShort(name) {
@@ -396,27 +428,33 @@
 
   /* ---------------------------------------------------------------- drawer */
 
+  function markSelected(name) {
+    Array.prototype.forEach.call(document.querySelectorAll('.tile'), function (tile) {
+      tile.setAttribute('aria-current', String(tile.getAttribute('data-name') === name));
+    });
+  }
+
   function select(name) {
     state.selected = name;
     state.stacks = 1;
-    Array.prototype.forEach.call(document.querySelectorAll('.card'), function (card) {
-      var cardName = card.querySelector('.card__name');
-      card.setAttribute('aria-current', String(!!cardName && cardName.textContent === name));
-    });
+    markSelected(name);
     paintDrawer();
   }
 
   function closeDrawer() {
     state.selected = null;
     clear(drawerHost);
-    Array.prototype.forEach.call(document.querySelectorAll('.card'), function (card) {
-      card.setAttribute('aria-current', 'false');
-    });
+    markSelected(null);
   }
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && state.selected) closeDrawer();
   });
+
+  function drawerIcon(entry) {
+    var src = iconURL(entry);
+    return src ? el('img', { 'class': 'drawer__icon', src: src, alt: '' }) : null;
+  }
 
   function paintDrawer() {
     clear(drawerHost);
@@ -482,7 +520,6 @@
         clear(tbody);
         entry.stats.forEach(function (stat) {
           var computed = stackValue(stat, state.stacks);
-          var atOne = stackValue(stat, 1);
           tbody.appendChild(el('tr', null, [
             el('td', null, [
               el('div', { text: stat.stat }),
@@ -491,11 +528,11 @@
                 text: STACK_NOTE[stat.stack] || stat.stack
               })
             ]),
-            el('td', { 'class': 'num', text: atOne != null ? formatStat(stat, atOne) : (stat.base || '—') }),
+            el('td', { 'class': 'num', text: stat.add || stat.base || '—' }),
             el('td', {
               'class': 'num',
               style: computed != null ? 'color:var(--accent);font-weight:700' : '',
-              text: computed != null ? formatStat(stat, computed) : (stat.add ? stat.add + '/stack' : '—')
+              text: computed != null ? formatStat(stat, computed) : '—'
             })
           ]));
         });
@@ -518,7 +555,7 @@
           el('thead', null, [
             el('tr', null, [
               el('th', { text: 'Stat' }),
-              el('th', { 'class': 'num', text: 'At 1' }),
+              el('th', { 'class': 'num', text: 'Per stack' }),
               el('th', { 'class': 'num', text: 'At ' }, [])
             ])
           ]),
@@ -593,6 +630,7 @@
       style: '--tier:' + tierColor(entry.tier)
     }, [
       el('div', { 'class': 'drawer__bar' }, [
+        drawerIcon(entry),
         el('div', { 'class': 'drawer__title' }, [
           el('h2', { text: entry.name }),
           el('div', { 'class': 'drawer__sub', text: subParts.join(' · ') })
@@ -758,9 +796,11 @@
       }, [icon(ICONS.close)]);
       remove.addEventListener('click', function () { setCount(row.name, 0); });
 
+      var rowIcon = iconURL(entry);
       list.appendChild(el('div', {
         'class': 'loadout__row', style: '--tier:' + tierColor(entry.tier)
       }, [
+        rowIcon ? el('img', { 'class': 'loadout__icon', src: rowIcon, alt: '', loading: 'lazy' }) : null,
         el('span', { 'class': 'loadout__name', text: entry.name }),
         el('div', { 'class': 'stepper' }, [dec, out, inc]),
         remove

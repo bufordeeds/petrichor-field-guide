@@ -16,6 +16,8 @@ to system faces without it.
 """
 from __future__ import annotations
 
+import base64
+import json
 import pathlib
 import sys
 
@@ -45,6 +47,25 @@ SHELL = """
 """
 
 
+def icons_script() -> str:
+    """Inline every icon as a data URI so the bundle needs no assets folder.
+
+    WebP at 96px keeps the whole set near 1 MB; base64 adds about a third.
+    The app falls back to assets/items/<slug>.webp when this is absent."""
+    folder = ROOT / "assets" / "items"
+    if not folder.is_dir():
+        print("  no assets/items -- bundling without icons", file=sys.stderr)
+        return ""
+    icons = {}
+    for path in sorted(folder.glob("*.webp")):
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        icons[path.stem] = "data:image/webp;base64," + encoded
+    if not icons:
+        return ""
+    print(f"  inlined {len(icons)} icons", file=sys.stderr)
+    return "window.ROR2_ICONS = " + json.dumps(icons, separators=(",", ":")) + ";\n"
+
+
 def read(relative: str) -> str:
     path = ROOT / relative
     if not path.exists():
@@ -56,9 +77,10 @@ def main() -> int:
     css = read("app.css")
     app = read("app.js")
     data = read("data/ror2-data.js")
+    icons = icons_script()
 
     # A literal </script> anywhere in the data would close the tag early.
-    for name, body in (("data", data), ("app", app)):
+    for name, body in (("data", data), ("app", app), ("icons", icons)):
         if "</script" in body.lower():
             sys.exit(f"{name} contains a literal </script> and cannot be inlined")
 
@@ -70,7 +92,8 @@ def main() -> int:
         f"<style>\n{css}\n</style>\n"
         f"{SHELL}\n"
         f"<script>\n{data}\n</script>\n"
-        f"<script>\n{app}\n</script>\n"
+        + (f"<script>\n{icons}</script>\n" if icons else "")
+        + f"<script>\n{app}\n</script>\n"
     )
 
     document = (
@@ -103,8 +126,9 @@ def main() -> int:
         "</head>\n<body>\n"
         f"{SHELL}\n"
         f"<script>\n{data}\n</script>\n"
-        f"<script>\n{app}\n</script>\n"
-        "</body>\n</html>\n"
+        + (f"<script>\n{icons}</script>\n" if icons else "")
+        + f"<script>\n{app}\n</script>\n"
+        + "</body>\n</html>\n"
     )
 
     DIST.mkdir(exist_ok=True)

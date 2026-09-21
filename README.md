@@ -14,15 +14,15 @@ python3 -m http.server 8000     # if you'd rather serve it
 python3 tools/bundle.py         # -> dist/ror2-companion.html, one portable file
 ```
 
-`tools/bundle.py` inlines the stylesheet, the app and the data into a single
-HTML file with no sibling dependencies — handy for dropping on a phone or
-hosting anywhere static.
+`tools/bundle.py` inlines the stylesheet, the app, the data and every icon (as
+data URIs) into a single ~1.9 MB HTML file with no sibling dependencies — handy
+for dropping on a phone or hosting anywhere static.
 
 ## What's in it
 
 | Tab | What it does |
 |---|---|
-| **Items** | All 183 items and 44 equipment, searchable by name or effect, filterable by tier, category and DLC. Each one opens a stack calculator. |
+| **Items** | All 183 items and 44 equipment as an icon grid grouped by tier, searchable by name or effect and filterable by category and DLC. Each one opens a stack calculator. |
 | **Build** | Add items with counts and see the aggregate — attack speed, crit, block chance, armor, movement speed, health. Saved locally. |
 | **Crew** | All 19 survivors with base stats, per-level scaling, and every loadout skill plus its unlock. |
 | **Codes** | All 20 artifact codes, drawn as the 3×3 grids you enter on the Compound Generator. |
@@ -66,11 +66,18 @@ Storm, Alloyed Collective). `tools/build_data.py` fetches those modules, runs
 them in a sandboxed Lua runtime, normalises the result, and writes one file.
 
 ```
-pip install lupa
+pip install lupa pillow
 python3 tools/build_data.py     # re-fetches and regenerates data/ror2-data.js
+python3 tools/fetch_icons.py    # downloads any icons not already in assets/
 ```
 
-Re-run it after a patch or a new DLC. Responses are cached in `tools/.cache/`;
+`tools/fetch_icons.py` pulls each item's icon through the same wiki's image API
+and writes it as a 96px WebP — the full set is about 1.1 MB rather than the
+~12 MB the originals weigh. Icons already on disk are skipped, and an item
+whose icon cannot be found renders as a tier-coloured tile with its initials,
+so a miss degrades instead of breaking.
+
+Re-run both after a patch or a new DLC. Responses are cached in `tools/.cache/`;
 delete that directory to force a fresh fetch. The build drops engine-internal
 entries (difficulty helpers and hidden buff carriers like `DrizzlePlayerHelper`,
 which have no description or pickup quote) and cut content, keeping only real
@@ -78,7 +85,8 @@ pickups.
 
 Source: [riskofrain2.wiki.gg](https://riskofrain2.wiki.gg), including its
 [Item Stacking](https://riskofrain2.wiki.gg/wiki/Item_Stacking) page for the
-formulas above.
+formulas above. Item art is from the game and belongs to Hopoo Games / Gearbox
+Publishing; it is used here for a personal reference tool.
 
 ## Layout
 
@@ -86,8 +94,10 @@ formulas above.
 index.html              page shell
 app.css                 styles; palette is the game's own tier + keyword colours
 app.js                  all five views, classic script so file:// works
-data/ror2-data.js       generated game data (~260 KB)
-tools/build_data.py     regenerates the above from the wiki
+data/ror2-data.js       generated game data (~270 KB)
+assets/items/           227 item and equipment icons, 96px WebP (~1.1 MB)
+tools/build_data.py     regenerates the data from the wiki
+tools/fetch_icons.py    downloads and downscales the icons
 tools/bundle.py         inlines everything into dist/ as a single file
 ```
 

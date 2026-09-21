@@ -11,7 +11,12 @@ instantly on a phone or a second monitor mid-run.
 ```
 open index.html                 # or drag it into a browser
 python3 -m http.server 8000     # if you'd rather serve it
+python3 tools/bundle.py         # -> dist/ror2-companion.html, one portable file
 ```
+
+`tools/bundle.py` inlines the stylesheet, the app and the data into a single
+HTML file with no sibling dependencies — handy for dropping on a phone or
+hosting anywhere static.
 
 ## What's in it
 
@@ -83,6 +88,7 @@ app.css                 styles; palette is the game's own tier + keyword colours
 app.js                  all five views, classic script so file:// works
 data/ror2-data.js       generated game data (~260 KB)
 tools/build_data.py     regenerates the above from the wiki
+tools/bundle.py         inlines everything into dist/ as a single file
 ```
 
 Deliberately classic `<script>` tags rather than ES modules, and data baked

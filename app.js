@@ -856,7 +856,16 @@
     if (!state.survivor) return;
     var chosen = D.survivors.filter(function (s) { return s.name === state.survivor; })[0];
     if (!chosen) return;
-    view.appendChild(survivorPanel(chosen));
+    var panel = survivorPanel(chosen);
+    view.appendChild(panel);
+    /* The panel lands below the whole grid, so bring it into view — otherwise
+       picking a survivor looks like nothing happened. */
+    window.requestAnimationFrame(function () {
+      panel.scrollIntoView({
+        block: 'start',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+      });
+    });
   }
 
   function survivorPanel(survivor) {

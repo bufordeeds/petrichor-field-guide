@@ -211,6 +211,10 @@
     /* Remembered so reopening the page mid-run lands back on your survivor. */
     survivor: store.get('survivor', null),
     crewQuery: '',
+    /* The survivor whose target build the Build tab compares against
+       (falls back to the older single "loaded build" key). */
+    runSurvivor: store.get('runSurvivor', store.get('buildFor', null)),
+    targets: store.get('targets', {}) || {},
     level: 1,
     done: store.get('done', {}),
     unlockFilter: 'all',
@@ -659,7 +663,8 @@
     else state.loadout.push({ name: name, count: 1 });
     state.sampled = false;
     store.set('loadout', state.loadout);
-    if (state.tab === 'loadout') render();
+    /* Keep the scroll position: tapping +1 mid-list should not jump to the top. */
+    if (state.tab === 'loadout') render(true);
   }
 
   function setCount(name, count) {
@@ -668,7 +673,163 @@
     }).filter(function (row) { return row.count > 0; });
     state.sampled = false;
     store.set('loadout', state.loadout);
-    render();
+    render(true);
+  }
+
+  /* ------------------------------------------------------ run vs. target */
+
+  /* The planner's item list is the run you are carrying. A target is the
+     build you are going for: a survivor's recommended build, or one you saved
+     from a run. Targets are kept per survivor, so switching never wipes one. */
+
+  function targetFor(name) {
+    if (!name) return [];
+    if (state.targets[name]) return state.targets[name];
+    return BUILDS[name] ? buildItemsFor(BUILDS[name], false) : [];
+  }
+
+  function haveCount(name) {
+    var row = state.loadout.filter(function (r) { return r.name === name; })[0];
+    return row ? row.count : 0;
+  }
+
+  /** Items you are carrying that the survivor's build says to skip. */
+  function scrapList(name) {
+    var build = BUILDS[name];
+    if (!build || !build.avoid) return [];
+    return build.avoid.filter(function (row) {
+      return BY_ID[row.id] && haveCount(BY_ID[row.id].name) > 0;
+    });
+  }
+
+  function trackBuild(name, rows) {
+    if (state.targets[name] && !window.confirm('Replace your saved ' + name + ' target?')) return;
+    if (rows) state.targets[name] = rows;
+    else delete state.targets[name];
+    store.set('targets', state.targets);
+    state.runSurvivor = name;
+    store.set('runSurvivor', name);
+    /* The example inventory would only clutter a fresh comparison. */
+    if (state.sampled) {
+      state.loadout = [];
+      state.sampled = false;
+      store.set('loadout', state.loadout);
+    }
+    go('loadout');
+  }
+
+  function targetRows(name) {
+    var tierIndex = {};
+    TIERS.forEach(function (tier, i) { tierIndex[tier] = i; });
+    return targetFor(name).filter(function (t) { return BY_NAME[t.name]; }).map(function (t) {
+      var entry = BY_NAME[t.name];
+      var have = haveCount(t.name);
+      return {
+        entry: entry, want: t.count, have: have,
+        state: have === 0 ? 'missing' : (have < t.count ? 'stacking' : 'done'),
+        order: tierIndex[entry.tier] || 0
+      };
+    });
+  }
+
+  function targetPanel() {
+    var name = state.runSurvivor;
+    var rows = targetRows(name);
+    if (!rows.length) return null;
+    var custom = !!state.targets[name];
+    var started = rows.filter(function (r) { return r.have > 0; }).length;
+
+    var panel = el('div', { 'class': 'panel target' }, [
+      el('div', { 'class': 'target__head' }, [
+        el('h2', { 'class': 'block__h', text: 'Target · ' + name + (custom ? ' (custom)' : '') }),
+        el('span', { 'class': 'view__count', text: started + ' of ' + rows.length + ' started' })
+      ]),
+      el('div', { 'class': 'progress' }, [
+        el('div', { 'class': 'progress__fill', style: 'width:' + Math.round(100 * started / rows.length) + '%' })
+      ])
+    ]);
+
+    /* Missing first and split by tier, so a scrap of a given colour maps
+       straight onto what to print; then items still short of the stack
+       target; then the ones you have covered. */
+    var groups = [];
+    TIERS.forEach(function (tier) {
+      var missing = rows.filter(function (r) { return r.state === 'missing' && r.entry.tier === tier; });
+      if (missing.length) groups.push(['Missing · ' + tier, missing, tier]);
+    });
+    var stacking = rows.filter(function (r) { return r.state === 'stacking'; });
+    var done = rows.filter(function (r) { return r.state === 'done'; });
+    if (stacking.length) groups.push(['Stacking', stacking, null]);
+    if (done.length) groups.push(['Got it', done, null]);
+
+    groups.forEach(function (group) {
+      var list = el('div', { 'class': 'trows' });
+      group[1].sort(function (a, b) { return a.order - b.order; }).forEach(function (r) {
+        var plus = el('button', {
+          'class': 'iconbtn', type: 'button', 'aria-label': 'Picked up ' + r.entry.name
+        }, [icon(ICONS.plus)]);
+        plus.addEventListener('click', function () { addToLoadout(r.entry.name); });
+        list.appendChild(el('div', { 'class': 'trow trow--' + r.state }, [
+          buildItem(r.entry.id),
+          el('span', { 'class': 'trow__have', text: r.have + '/' + r.want }),
+          plus
+        ]));
+      });
+      panel.appendChild(el('div', { 'class': 'bgroup' }, [
+        el('h3', {
+          'class': 'group__h',
+          style: group[2] ? 'color:' + tierColor(group[2]) : '',
+          text: group[0]
+        }),
+        list
+      ]));
+    });
+
+    var scrap = scrapList(name);
+    if (scrap.length) {
+      panel.appendChild(el('div', { 'class': 'bgroup' }, [
+        el('h3', { 'class': 'group__h', text: 'Scrap these' })
+      ].concat(scrap.map(function (row) {
+        return el('div', { 'class': 'bskip' }, [
+          buildItem(row.id),
+          el('span', { 'class': 'bskip__why', text: row.why })
+        ]);
+      }))));
+    }
+
+    var targetNames = {};
+    rows.forEach(function (r) { targetNames[r.entry.name] = true; });
+    var extras = state.loadout.filter(function (row) { return !targetNames[row.name]; });
+    if (extras.length) {
+      panel.appendChild(el('p', {
+        'class': 'callout',
+        text: 'Also carrying, not in the target: ' + extras.map(function (row) {
+          return row.name + (row.count > 1 ? ' ×' + row.count : '');
+        }).join(', ') + '.'
+      }));
+    }
+
+    var actions = el('div', { 'class': 'build__actions' });
+    if (state.loadout.length) {
+      var saveBtn = el('button', { 'class': 'btn btn--ghost', type: 'button', text: 'Save run as target' });
+      saveBtn.addEventListener('click', function () {
+        state.targets[name] = state.loadout.map(function (row) { return { name: row.name, count: row.count }; });
+        store.set('targets', state.targets);
+        render(true);
+      });
+      actions.appendChild(saveBtn);
+    }
+    if (custom && BUILDS[name]) {
+      var resetBtn = el('button', { 'class': 'btn btn--ghost', type: 'button', text: 'Back to recommended' });
+      resetBtn.addEventListener('click', function () {
+        delete state.targets[name];
+        store.set('targets', state.targets);
+        render(true);
+      });
+      actions.appendChild(resetBtn);
+    }
+    if (actions.childNodes.length) panel.appendChild(actions);
+    return panel;
   }
 
   /**
@@ -726,10 +887,10 @@
   /** The current build as plain text, for pasting into a chat and asking for advice. */
   function buildAsText() {
     var lines = ['My Risk of Rain 2 build (from Petrichor Field Guide):'];
-    /* Prefer the survivor whose build was loaded; otherwise say it is a guess. */
-    var loadedFor = store.get('buildFor', null);
-    if (loadedFor) lines.push('Survivor: ' + loadedFor);
+    /* Prefer the survivor you are tracking; otherwise say it is a guess. */
+    if (state.runSurvivor) lines.push('Survivor: ' + state.runSurvivor);
     else if (state.survivor) lines.push('Survivor (last viewed): ' + state.survivor);
+    lines.push('Carrying:');
     TIERS.forEach(function (tier) {
       var rows = state.loadout.filter(function (row) {
         return BY_NAME[row.name] && BY_NAME[row.name].tier === tier;
@@ -745,6 +906,29 @@
         return bucket.label + ' ' + num(bucket.total, 2)
           + (bucket.unit === '%' ? '%' : (bucket.unit ? ' ' + bucket.unit : ''));
       }).join('; '));
+    }
+    if (state.runSurvivor) {
+      var rows = targetRows(state.runSurvivor);
+      var missing = rows.filter(function (r) { return r.state === 'missing'; });
+      var short = rows.filter(function (r) { return r.state === 'stacking'; });
+      if (rows.length) {
+        lines.push('Target build (' + (state.targets[state.runSurvivor] ? 'my own' : 'recommended')
+          + '): ' + (rows.length - missing.length) + ' of ' + rows.length + ' items started');
+      }
+      if (missing.length) {
+        lines.push('Still missing: ' + missing.map(function (r) { return r.entry.name; }).join(', '));
+      }
+      if (short.length) {
+        lines.push('Short on stacks: ' + short.map(function (r) {
+          return r.entry.name + ' ' + r.have + '/' + r.want;
+        }).join(', '));
+      }
+      var scrap = scrapList(state.runSurvivor);
+      if (scrap.length) {
+        lines.push('Carrying items this survivor should skip: ' + scrap.map(function (row) {
+          return BY_ID[row.id].name + ' (' + row.why + ')';
+        }).join('; '));
+      }
     }
     return lines.join('\n');
   }
@@ -803,17 +987,34 @@
       if (picker.value) { addToLoadout(picker.value); }
     });
 
-    var controls = el('div', { 'class': 'controls' }, [picker]);
+    var targetSel = el('select', { id: 'target-pick', 'aria-label': 'Survivor whose build you are going for' },
+      [el('option', { value: '', text: 'No target build' })].concat(
+        D.survivors.filter(function (s) {
+          return BUILDS[s.name] || state.targets[s.name];
+        }).map(function (s) {
+          return el('option', {
+            value: s.name, text: 'Target: ' + s.name,
+            selected: state.runSurvivor === s.name
+          });
+        })
+      ));
+    targetSel.addEventListener('change', function () {
+      state.runSurvivor = targetSel.value || null;
+      store.set('runSurvivor', state.runSurvivor);
+      render(true);
+    });
+
+    var controls = el('div', { 'class': 'controls' }, [picker, targetSel]);
     if (state.loadout.length) {
       var clearBtn = el('button', {
         'class': 'btn btn--ghost', type: 'button',
-        text: state.sampled ? 'Clear example' : 'Clear build'
+        text: state.sampled ? 'Clear example' : 'New run'
       });
       clearBtn.addEventListener('click', function () {
+        if (!state.sampled && !window.confirm('Start a new run? This empties what you are carrying; targets are kept.')) return;
         state.loadout = [];
         state.sampled = false;
         store.set('loadout', state.loadout);
-        store.set('buildFor', null);
         render();
       });
       controls.appendChild(clearBtn);
@@ -837,10 +1038,24 @@
       }));
     }
 
+    /* What you are going for, and what is still missing, comes first: that is
+       the question mid-run. The list and totals below are what you carry. */
+    var target = state.runSurvivor ? targetPanel() : null;
+    if (target) view.appendChild(target);
+    else if (!state.runSurvivor) {
+      view.appendChild(el('p', {
+        'class': 'callout', style: 'margin:0 0 14px',
+        text: 'Pick a target build above, or tap “Track this build” on a survivor in Crew, '
+            + 'to see what this run is still missing.'
+      }));
+    }
+
     if (!state.loadout.length) {
       view.appendChild(el('p', {
         'class': 'empty',
-        text: 'No items yet. Add one above, or open any item on the Items tab and choose “Add to build”.'
+        text: state.runSurvivor
+          ? 'Nothing picked up yet. Tap + next to a target item as you grab it, or add anything else above.'
+          : 'No items yet. Add one above, or open any item on the Items tab and choose “Add to build”.'
       }));
       return;
     }
@@ -1129,20 +1344,6 @@
     });
   }
 
-  function loadBuild(survivorName, build, fun) {
-    var rows = buildItemsFor(build, fun);
-    if (!rows.length) return;
-    if (state.loadout.length && !state.sampled) {
-      var label = fun && build.fun ? build.fun.name : survivorName + ' build';
-      if (!window.confirm('Replace your current build with the ' + label + '?')) return;
-    }
-    state.loadout = rows;
-    state.sampled = false;
-    store.set('loadout', state.loadout);
-    store.set('buildFor', survivorName);
-    go('loadout');
-  }
-
   /** A named item chip that opens the item drawer (and its stack maths). */
   function buildItem(id) {
     var entry = BY_ID[id];
@@ -1184,8 +1385,8 @@
 
     var actions = el('div', { 'class': 'build__actions' });
     var loadBtn = el('button', { 'class': 'btn btn--primary', type: 'button' },
-      [icon(ICONS.loadout), el('span', { text: 'Load into Build Planner' })]);
-    loadBtn.addEventListener('click', function () { loadBuild(survivor.name, build, false); });
+      [icon(ICONS.loadout), el('span', { text: 'Track this build' })]);
+    loadBtn.addEventListener('click', function () { trackBuild(survivor.name, null); });
     actions.appendChild(loadBtn);
     block.appendChild(actions);
 
@@ -1239,8 +1440,8 @@
 
     if (build.fun) {
       var funBtn = el('button', { 'class': 'btn', type: 'button' },
-        [icon(ICONS.loadout), el('span', { text: 'Load this one' })]);
-      funBtn.addEventListener('click', function () { loadBuild(survivor.name, build, true); });
+        [icon(ICONS.loadout), el('span', { text: 'Track this one' })]);
+      funBtn.addEventListener('click', function () { trackBuild(survivor.name, buildItemsFor(build, true)); });
       block.appendChild(buildGroup('For fun: ' + build.fun.name, [
         build.fun.how ? el('div', { 'class': 'skill__desc', text: build.fun.how }) : null,
         buildItems(build.fun.items),
@@ -1462,7 +1663,8 @@
     unlocks: renderUnlocks
   };
 
-  function render() {
+  function render(keepScroll) {
+    var top = main.scrollTop;
     clear(main);
     clear(drawerHost);
     var view = el('div', { 'class': 'view' });
@@ -1479,7 +1681,7 @@
               + (window.ROR2_BUILDS.patch ? ' (' + window.ROR2_BUILDS.patch + ')' : '') + '.' : '')
       })
     ]));
-    main.scrollTop = 0;
+    main.scrollTop = keepScroll ? top : 0;
   }
 
   render();

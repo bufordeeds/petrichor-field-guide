@@ -23,8 +23,8 @@ for dropping on a phone or hosting anywhere static.
 | Tab | What it does |
 |---|---|
 | **Items** | All 183 items and 44 equipment as an icon grid grouped by tier, searchable by name or effect and filterable by category and DLC. Each one opens a stack calculator. |
-| **Build** | Add items with counts and see the aggregate — attack speed, crit, block chance, armor, movement speed, health. Saved locally. |
-| **Crew** | All 19 survivors with base stats, per-level scaling, every loadout skill plus its unlock, and a recommended build (loadout, core items by role, reds/boss/equipment, items to skip, tips, a fun alt). Build items open the stack calculator, and "Load into Build Planner" pre-fills the Build tab. |
+| **Build** | Track the run you are carrying against a target build: what is still missing (grouped by tier, with one-tap +1), what is short on stacks, and anything on the survivor's skip list. Totals aggregate attack speed, crit, block chance, armor, movement speed, health. Targets are kept per survivor; save a run as your own target or go back to the recommended one. "Copy build" puts all of it on the clipboard as plain text. Saved locally. |
+| **Crew** | All 19 survivors with base stats, per-level scaling, every loadout skill plus its unlock, and a recommended build (loadout, core items by role, reds/boss/equipment, items to skip, tips, a fun alt). Build items open the stack calculator, and "Track this build" makes it the Build tab's target without touching your run. |
 | **Codes** | All 20 artifact codes, drawn as the 3×3 grids you enter on the Compound Generator. |
 | **Unlocks** | All 171 challenges with what each one rewards, tracked with a progress bar. Saved locally. |
 

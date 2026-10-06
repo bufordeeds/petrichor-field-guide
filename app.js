@@ -926,13 +926,18 @@
    * 1 - product(1 - p). Stats we cannot compute exactly are left out and
    * reported separately rather than folded in with a guess.
    */
+  /* Items whose listed stat belongs to something they summon, not to you:
+     the Squid Turret's attack speed, your drones' attack speed, Aurelionite's
+     health. Summing them into your totals would overstate the build. */
+  var SUMMON_STATS = { Squid: true, DroneWeapons: true, TitanGoldDuringTP: true };
+
   function aggregate() {
     var buckets = {};
     var skipped = [];
 
     state.loadout.forEach(function (row) {
       var entry = BY_NAME[row.name];
-      if (!entry) return;
+      if (!entry || SUMMON_STATS[entry.id]) return;
       (entry.stats || []).forEach(function (stat) {
         if (!stat.canon) {
           return;
@@ -1214,7 +1219,9 @@
         text: 'Only stats that genuinely add up appear here. Bonus damage is left '
             + 'out on purpose: the game files label Crowbar’s conditional bonus, '
             + 'AtG’s missile hit and Gasoline’s on-kill burn all as '
-            + '“damage”, and those do not sum into one number.'
+            + '“damage”, and those do not sum into one number. Stats that '
+            + 'belong to a summon (Squid Polyp’s turret, Spare Drone Parts’ '
+            + 'drones, Halcyon Seed’s Aurelionite) are left out too.'
       }));
     }
 

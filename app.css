@@ -1232,6 +1232,18 @@ tbody tr:last-child td { border-bottom: 0; }
   .igrid { grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 6px; }
 
   .artifact { grid-template-columns: auto minmax(0, 1fr); }
+
+  /* iPhone Safari (iOS 26) floats its address bar over the bottom of the
+     page, and this layout never scrolls the document, so the bar never
+     collapses. Lift the tabs above it; the rail's background still runs
+     underneath. Installed to the home screen there is no bar, so this only
+     applies in the browser (class set in app.js). */
+  .ios-browser .rail { padding-bottom: calc(50px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* Installed full-screen with a translucent status bar: keep content clear of it. */
+@media (max-width: 680px) and (display-mode: standalone) {
+  .main { padding-top: env(safe-area-inset-top, 0px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

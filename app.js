@@ -18,6 +18,15 @@
     return;
   }
 
+  /* Mark iPhone Safari (not the installed home-screen app) so the CSS can lift
+     the bottom tabs above Safari's floating address bar. */
+  (function () {
+    var iPhone = /iPhone|iPod/.test(navigator.userAgent);
+    var installed = navigator.standalone === true
+      || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    if (iPhone && !installed) document.documentElement.classList.add('ios-browser');
+  })();
+
   /* ---------------------------------------------------------------- helpers */
 
   var TIER_VAR = {

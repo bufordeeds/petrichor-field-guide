@@ -4,6 +4,15 @@
 window.ROR2_CHANGELOG = {
  "entries": [
   {
+   "date": "2026-10-07",
+   "title": "Add it to your home screen",
+   "changes": [
+    "Add to Home Screen now opens the guide full-screen like an app, with its own icon and no browser bars.",
+    "In Safari on iPhone, the bottom tabs now sit above the floating address bar instead of underneath it.",
+    "The guide is now open source on GitHub, with a form for build corrections and feature requests."
+   ]
+  },
+  {
    "date": "2026-10-06",
    "title": "Share builds and see what changed",
    "changes": [

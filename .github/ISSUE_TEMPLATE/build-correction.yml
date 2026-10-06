@@ -1,0 +1,23 @@
+name: Build correction
+description: A recommended build is wrong, outdated, or missing something.
+labels: [builds]
+body:
+  - type: input
+    id: survivor
+    attributes:
+      label: Survivor
+      placeholder: e.g. Engineer
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: What should change, and why?
+      description: Items, skills or tips to add, remove or swap. Experience from your own runs counts.
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source (optional)
+      description: A wiki page, guide or video that backs it up.

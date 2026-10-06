@@ -1,0 +1,15 @@
+name: Feature request
+description: Something that would make the guide more useful mid-run.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What were you trying to do?
+      description: The moment in a run where the guide fell short.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?

@@ -1,8 +1,33 @@
-# Risk of Rain 2 companion
+# Petrichor Field Guide
 
-A second screen for a run: search any item and see what it actually does at
-_N_ stacks, plan a build and get real totals, check survivor stats at level,
-look up an artifact code, and tick off unlocks.
+**[ror2.buford.dev](https://ror2.buford.dev)** — a second-screen companion for
+Risk of Rain 2, made to sit on a phone or tablet next to the game.
+
+I'm new to Risk of Rain 2. I built this for co-op runs with a friend because I
+kept losing track of two things: what was in my inventory, and what I should be
+going for on each survivor. So it does those well:
+
+- **Recommended builds for every survivor** — loadout, core items by role,
+  reds, boss items, equipment, what to skip, and a few tips.
+- **Run tracking** — pick a survivor's build as your target, tap items in as
+  you pick them up, and see what's still missing (grouped by tier, so you know
+  what to print with your scrap) and what you should scrap.
+- **Real stack maths** for every item, a build planner that totals what a build
+  actually gives you, survivor stats at level, artifact codes and an unlock
+  tracker.
+- **Share a build** as a link, or copy it as text to ask someone for advice.
+
+### The builds are starting points, not gospel
+
+They were researched from the [community wiki](https://riskofrain2.wiki.gg) and
+recent guides for patch 1.4.1, and each build lists its sources. Some survivors
+(Drifter and Operator especially) have very little written about them yet, and
+where sources disagreed the build says so. If you know better — and many of you
+will — please
+[open an issue](https://github.com/bufordeeds/petrichor-field-guide/issues/new/choose)
+or a pull request. Changes land in the site's "What's new" page.
+
+## Running it
 
 No build step, no dependencies, no network. Open `index.html` and it works —
 including straight off the filesystem, which is the point: it should load
@@ -86,7 +111,8 @@ pickups.
 Source: [riskofrain2.wiki.gg](https://riskofrain2.wiki.gg), including its
 [Item Stacking](https://riskofrain2.wiki.gg/wiki/Item_Stacking) page for the
 formulas above. Item art is from the game and belongs to Hopoo Games / Gearbox
-Publishing; it is used here for a personal reference tool.
+Publishing; it is used here for a free, unofficial fan reference. This project
+is not affiliated with either.
 
 ## Survivor builds
 
@@ -103,8 +129,7 @@ After a patch, edit the file and run:
 python3 tools/check_builds.py   # flags unknown item ids / skill names, lists survivors with no build
 ```
 
-Bump the `?v=` query on the `<script>`/`<link>` tags in `index.html` when you
-deploy so phones pick up the new files instead of a cached copy.
+CI runs the same check on every push and pull request.
 
 ## What's new and shared builds
 
@@ -118,8 +143,19 @@ survivor has one) a custom target into the URL fragment, e.g.
 ids with counts. Nothing is sent to the server. Opening such a link offers to
 load the build and never overwrites a run without asking.
 
-The personal note at the top of `index.html` only shows when the page is
-opened with `?mark`; that browser then keeps showing it until dismissed.
+## Deploying
+
+`.github/workflows/site.yml` runs on every push and pull request:
+
+1. **Check** — syntax-checks the app and data files and runs
+   `tools/check_builds.py`, so a build pointing at a renamed item fails CI.
+2. **Deploy** (pushes to `main` only) — copies the site into `_site/`, stamps
+   every `?v=` asset query in `index.html` with the commit hash so phones fetch
+   fresh files instead of a cached copy, and publishes to GitHub Pages at
+   `ror2.buford.dev`.
+
+So the release process is: merge to `main`, add a line to `data/changelog.js`
+if visitors would notice.
 
 ## Layout
 
@@ -129,6 +165,8 @@ app.css                 styles; palette is the game's own tier + keyword colours
 app.js                  all five views, classic script so file:// works
 data/ror2-data.js       generated game data (~270 KB)
 data/ror2-builds.js     hand-curated survivor builds (~60 KB)
+data/changelog.js       hand-written "What's new" entries
+.github/workflows/      CI checks and the GitHub Pages deploy
 assets/items/           227 item and equipment icons, 96px WebP (~1.1 MB)
 tools/build_data.py     regenerates the data from the wiki
 tools/fetch_icons.py    downloads and downscales the icons

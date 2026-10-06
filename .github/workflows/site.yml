@@ -1,0 +1,65 @@
+# Check every push and pull request; deploy main to GitHub Pages.
+name: Site
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Syntax-check the app and data files
+        run: for f in app.js data/*.js; do node --check "$f"; done
+
+      # Fails when a build references an item id or skill the game data
+      # no longer has (e.g. after regenerating the data for a new patch).
+      - name: Check survivor builds against the game data
+        run: python3 tools/check_builds.py
+
+  deploy:
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      # Only the files the page loads; tools/ and the README stay out.
+      # Every ?v= asset query is stamped with the commit so phones fetch the
+      # new files instead of a cached copy.
+      - name: Assemble the site
+        run: |
+          mkdir _site
+          cp -r index.html app.js app.css data assets _site/
+          version="${GITHUB_SHA::8}"
+          sed -i -E "s/\?v=[0-9A-Za-z]+\"/?v=${version}\"/g" _site/index.html
+          grep -q "?v=${version}" _site/index.html
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

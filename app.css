@@ -1045,6 +1045,43 @@ tbody tr:last-child td { border-bottom: 0; }
 .bskip { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .bskip__why { font-size: 12.5px; color: var(--muted); flex: 1 1 160px; }
 
+/* Items grid: tiles in the tracked target build get an accent ring and a
+   have/want badge; tiles on the survivor's skip list are dimmed. */
+.tile[data-target="want"],
+.tile[data-target="done"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tile[data-target="skip"] { opacity: .5; }
+
+.tile__badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  padding: 3px 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  pointer-events: none;
+}
+.tile[data-target="done"] .tile__badge { background: var(--mk-h); color: var(--bg); }
+.tile[data-target="skip"] .tile__badge { background: var(--surface-3); color: var(--ink-2); }
+
+.tstat {
+  margin: 0;
+  padding: 8px 11px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.tstat--want { background: var(--accent-soft); color: var(--ink); border-left: 3px solid var(--accent); }
+.tstat--done { border-left: 3px solid var(--mk-h); color: var(--ink); }
+.tstat--skip { border-left: 3px solid var(--mk-hp); }
+
 /* Build tab: run inventory against a target build. */
 .target { display: grid; gap: 12px; margin-bottom: 16px; }
 .target__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }

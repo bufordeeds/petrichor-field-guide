@@ -215,6 +215,7 @@
        (falls back to the older single "loaded build" key). */
     runSurvivor: store.get('runSurvivor', store.get('buildFor', null)),
     targets: store.get('targets', {}) || {},
+    targetOnly: false,
     level: 1,
     done: store.get('done', {}),
     unlockFilter: 'all',
@@ -263,7 +264,25 @@
 
   /* ------------------------------------------------------------ items view */
 
+  /** Where an item stands against the tracked target build, or null when not tracking. */
+  function targetStatus(name) {
+    if (!state.runSurvivor) return null;
+    var have = haveCount(name);
+    var row = targetFor(state.runSurvivor).filter(function (t) { return t.name === name; })[0];
+    if (row) return { kind: 'target', have: have, want: row.count };
+    var build = BUILDS[state.runSurvivor];
+    var skip = build && (build.avoid || []).filter(function (a) {
+      return BY_ID[a.id] && BY_ID[a.id].name === name;
+    })[0];
+    if (skip) return { kind: 'skip', have: have, why: skip.why };
+    return { kind: 'none', have: have };
+  }
+
   function matches(entry) {
+    if (state.targetOnly && state.runSurvivor) {
+      var st = targetStatus(entry.name);
+      if (!st || st.kind !== 'target') return false;
+    }
     if (state.tiers.length && state.tiers.indexOf(entry.tier) < 0) return false;
     if (state.category && (entry.categories || []).indexOf(state.category) < 0) return false;
     if (state.expansion && entry.expansion !== state.expansion) return false;
@@ -333,6 +352,18 @@
 
     /* tier chips double as the tier colour legend */
     var chips = el('div', { 'class': 'chips' });
+    if (state.runSurvivor) {
+      var targetChip = el('button', {
+        'class': 'chip', type: 'button', 'aria-pressed': String(!!state.targetOnly),
+        style: '--chip-color:var(--accent)'
+      }, [el('span', { text: 'Target only · ' + state.runSurvivor })]);
+      targetChip.addEventListener('click', function () {
+        state.targetOnly = !state.targetOnly;
+        targetChip.setAttribute('aria-pressed', String(state.targetOnly));
+        repaintGrid();
+      });
+      chips.appendChild(targetChip);
+    }
     TIERS.forEach(function (tier) {
       var total = ALL.filter(function (e) { return e.tier === tier; }).length;
       if (!total) return;
@@ -400,6 +431,20 @@
     return 'assets/items/' + entry.icon + '.webp';
   }
 
+  /* The hosted copy sits behind a proxy that occasionally answers a burst of
+     icon requests with a 502. Retry each icon once, shortly after, before
+     giving up and showing the fallback. */
+  function retryIcon(img, giveUp) {
+    img.addEventListener('error', function () {
+      if (img.dataset.retried || /^data:/.test(img.src)) { giveUp(); return; }
+      img.dataset.retried = '1';
+      var src = img.src;
+      window.setTimeout(function () {
+        img.src = src + (src.indexOf('?') < 0 ? '?' : '&') + 'r=1';
+      }, 400 + Math.random() * 600);
+    });
+  }
+
   function initials(name) {
     return name.split(/[\s-]+/).slice(0, 2).map(function (word) {
       return word.charAt(0).toUpperCase();
@@ -420,7 +465,7 @@
     if (src) {
       var img = el('img', { src: src, alt: '', loading: 'lazy', decoding: 'async' });
       /* A missing icon falls back to initials rather than a broken-image box. */
-      img.addEventListener('error', function () {
+      retryIcon(img, function () {
         img.remove();
         tile.appendChild(el('span', { 'class': 'tile__abbr', text: initials(entry.name) }));
       });
@@ -429,8 +474,48 @@
       tile.appendChild(el('span', { 'class': 'tile__abbr', text: initials(entry.name) }));
     }
 
+    markTile(tile);
     tile.addEventListener('click', function () { select(entry.name); });
     return tile;
+  }
+
+  /* Ring and badge a tile by its target status, so a target build can be
+     scanned for in the grid. Called again after a pickup to refresh counts. */
+  function markTile(tile) {
+    var old = tile.querySelector('.tile__badge');
+    if (old) old.remove();
+    var st = targetStatus(tile.getAttribute('data-name'));
+    if (!st || st.kind === 'none') { tile.removeAttribute('data-target'); return; }
+    var done = st.kind === 'target' && st.have >= st.want;
+    tile.setAttribute('data-target', st.kind === 'skip' ? 'skip' : (done ? 'done' : 'want'));
+    tile.appendChild(el('span', {
+      'class': 'tile__badge', 'aria-hidden': 'true',
+      text: st.kind === 'skip' ? 'skip' : st.have + '/' + st.want
+    }));
+  }
+
+  function refreshTargetMarks() {
+    Array.prototype.forEach.call(document.querySelectorAll('.tile'), markTile);
+    var line = document.getElementById('drawer-target');
+    if (line && state.selected) line.replaceWith(drawerTargetLine(state.selected));
+  }
+
+  /** One line at the top of the item drawer: is this in the target build? */
+  function drawerTargetLine(name) {
+    var st = targetStatus(name);
+    if (!st) return el('span', { id: 'drawer-target', hidden: true });
+    var who = state.runSurvivor;
+    var text, cls = 'tstat';
+    if (st.kind === 'target') {
+      text = 'In your ' + who + ' target · you have ' + st.have + ' of ' + st.want;
+      cls += st.have >= st.want ? ' tstat--done' : ' tstat--want';
+    } else if (st.kind === 'skip') {
+      text = 'On ' + who + '’s skip list: ' + st.why;
+      cls += ' tstat--skip';
+    } else {
+      text = 'Not in your ' + who + ' target' + (st.have ? ' · carrying ' + st.have : '');
+    }
+    return el('p', { id: 'drawer-target', 'class': cls, text: text });
   }
 
   function dlcShort(name) {
@@ -485,6 +570,7 @@
 
     var body = el('div', { 'class': 'drawer__body' });
 
+    body.appendChild(drawerTargetLine(entry.name));
     body.appendChild(el('p', { 'class': 'drawer__desc', html: entry.desc || entry.quote || '' }));
 
     /* equipment cooldown / duration */
@@ -665,6 +751,7 @@
     store.set('loadout', state.loadout);
     /* Keep the scroll position: tapping +1 mid-list should not jump to the top. */
     if (state.tab === 'loadout') render(true);
+    else refreshTargetMarks();
   }
 
   function setCount(name, count) {
@@ -1349,14 +1436,13 @@
     var entry = BY_ID[id];
     if (!entry) return null;
     var src = iconURL(entry);
+    var img = src ? el('img', { 'class': 'bitem__icon', src: src, alt: '', loading: 'lazy', decoding: 'async' }) : null;
+    if (img) retryIcon(img, function () { img.remove(); });
     var chip = el('button', {
       'class': 'bitem', type: 'button',
       title: entry.name + ' — ' + entry.tier,
       style: '--tier:' + tierColor(entry.tier)
-    }, [
-      src ? el('img', { 'class': 'bitem__icon', src: src, alt: '', loading: 'lazy', decoding: 'async' }) : null,
-      el('span', { text: entry.name })
-    ]);
+    }, [img, el('span', { text: entry.name })]);
     chip.addEventListener('click', function () { select(entry.name); });
     return chip;
   }

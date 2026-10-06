@@ -1920,14 +1920,16 @@
 
     main.appendChild(el('footer', { 'class': 'foot' }, [
       newsBtn ? el('div', { 'class': 'foot__news' }, [newsBtn]) : null,
+      /* Written for visitors; how the data is built lives in the README. */
       el('div', {
-        html: 'Game data generated from the community wiki at '
+        html: 'Item, survivor and challenge data from the community wiki at '
             + '<a href="' + D.source + '" rel="noreferrer noopener">riskofrain2.wiki.gg</a>'
-            + ' — ' + D.items.length + ' items, ' + D.equipment.length + ' equipment, '
-            + D.survivors.length + ' survivors, ' + D.challenges.length + ' challenges. '
-            + 'Regenerate with <code>tools/build_data.py</code>.'
-            + (window.ROR2_BUILDS ? ' Survivor builds are hand-curated in <code>data/ror2-builds.js</code>'
-              + (window.ROR2_BUILDS.patch ? ' (' + window.ROR2_BUILDS.patch + ')' : '') + '.' : '')
+            + ' (' + D.items.length + ' items, ' + D.equipment.length + ' equipment, '
+            + D.survivors.length + ' survivors).'
+            + (window.ROR2_BUILDS && window.ROR2_BUILDS.patch
+              ? ' Recommended builds are for ' + window.ROR2_BUILDS.patch + '.' : '')
+            + ' Unofficial fan site, not affiliated with Hopoo Games or Gearbox Publishing.'
+            + ' Game art belongs to its owners.'
       })
     ]));
     main.scrollTop = keepScroll ? top : 0;

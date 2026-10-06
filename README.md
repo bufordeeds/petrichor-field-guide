@@ -24,7 +24,7 @@ for dropping on a phone or hosting anywhere static.
 |---|---|
 | **Items** | All 183 items and 44 equipment as an icon grid grouped by tier, searchable by name or effect and filterable by category and DLC. Each one opens a stack calculator. |
 | **Build** | Add items with counts and see the aggregate — attack speed, crit, block chance, armor, movement speed, health. Saved locally. |
-| **Crew** | All 19 survivors with base stats, per-level scaling, and every loadout skill plus its unlock. |
+| **Crew** | All 19 survivors with base stats, per-level scaling, every loadout skill plus its unlock, and a recommended build (loadout, core items by role, reds/boss/equipment, items to skip, tips, a fun alt). Build items open the stack calculator, and "Load into Build Planner" pre-fills the Build tab. |
 | **Codes** | All 20 artifact codes, drawn as the 3×3 grids you enter on the Compound Generator. |
 | **Unlocks** | All 171 challenges with what each one rewards, tracked with a progress bar. Saved locally. |
 
@@ -88,6 +88,24 @@ Source: [riskofrain2.wiki.gg](https://riskofrain2.wiki.gg), including its
 formulas above. Item art is from the game and belongs to Hopoo Games / Gearbox
 Publishing; it is used here for a personal reference tool.
 
+## Survivor builds
+
+`data/ror2-builds.js` is the one hand-written data file. It is kept apart from
+the generated `ror2-data.js` so a regenerate never wipes it. Builds are keyed by
+survivor name; items are referenced by their wiki `id` (e.g. `Crowbar`,
+`BossDamageBonus`), so a display-name change after a patch does not break the
+links into the item reference. Loadout skills use the names in
+`survivors[].skills`.
+
+After a patch, edit the file and run:
+
+```
+python3 tools/check_builds.py   # flags unknown item ids / skill names, lists survivors with no build
+```
+
+Bump the `?v=` query on the `<script>`/`<link>` tags in `index.html` when you
+deploy so phones pick up the new files instead of a cached copy.
+
 ## Layout
 
 ```
@@ -95,10 +113,12 @@ index.html              page shell
 app.css                 styles; palette is the game's own tier + keyword colours
 app.js                  all five views, classic script so file:// works
 data/ror2-data.js       generated game data (~270 KB)
+data/ror2-builds.js     hand-curated survivor builds (~60 KB)
 assets/items/           227 item and equipment icons, 96px WebP (~1.1 MB)
 tools/build_data.py     regenerates the data from the wiki
 tools/fetch_icons.py    downloads and downscales the icons
 tools/bundle.py         inlines everything into dist/ as a single file
+tools/check_builds.py   validates the builds against the generated data
 ```
 
 Deliberately classic `<script>` tags rather than ES modules, and data baked

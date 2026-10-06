@@ -157,7 +157,16 @@
 
   var ALL = D.items.concat(D.equipment);
   var BY_NAME = {};
-  ALL.forEach(function (entry) { BY_NAME[entry.name] = entry; });
+  var BY_ID = {};
+  ALL.forEach(function (entry) {
+    BY_NAME[entry.name] = entry;
+    if (entry.id) BY_ID[entry.id] = entry;
+  });
+
+  /* Hand-curated survivor builds (data/ror2-builds.js). Optional: without the
+     file the Crew tab simply shows no build. Items are referenced by wiki id so
+     a display-name change after a patch does not break the links. */
+  var BUILDS = (window.ROR2_BUILDS && window.ROR2_BUILDS.survivors) || {};
 
   var TIERS = D.itemTiers.concat(D.equipTiers);
   var EXPANSIONS = ['Base game', 'Survivors of the Void', 'Seekers of the Storm', 'Alloyed Collective'];
@@ -199,7 +208,9 @@
     stacks: 1,
     loadout: store.get('loadout', null) || SAMPLE_BUILD.slice(),
     sampled: store.get('loadout', null) === null,
-    survivor: null,
+    /* Remembered so reopening the page mid-run lands back on your survivor. */
+    survivor: store.get('survivor', null),
+    crewQuery: '',
     level: 1,
     done: store.get('done', {}),
     unlockFilter: 'all',
@@ -238,7 +249,6 @@
   function go(tabId) {
     state.tab = tabId;
     state.selected = null;
-    state.survivor = null;
     store.set('tab', tabId);
     TABS.forEach(function (tab) {
       document.getElementById('tab-' + tab.id)
@@ -713,6 +723,52 @@
     }).sort(function (a, b) { return a.label.localeCompare(b.label); }).concat();
   }
 
+  /** The current build as plain text, for pasting into a chat and asking for advice. */
+  function buildAsText() {
+    var lines = ['My Risk of Rain 2 build (from Petrichor Field Guide):'];
+    /* Prefer the survivor whose build was loaded; otherwise say it is a guess. */
+    var loadedFor = store.get('buildFor', null);
+    if (loadedFor) lines.push('Survivor: ' + loadedFor);
+    else if (state.survivor) lines.push('Survivor (last viewed): ' + state.survivor);
+    TIERS.forEach(function (tier) {
+      var rows = state.loadout.filter(function (row) {
+        return BY_NAME[row.name] && BY_NAME[row.name].tier === tier;
+      });
+      if (!rows.length) return;
+      lines.push(tier + ': ' + rows.map(function (row) {
+        return row.name + (row.count > 1 ? ' x' + row.count : '');
+      }).join(', '));
+    });
+    var totals = aggregate();
+    if (totals.length) {
+      lines.push('Totals: ' + totals.map(function (bucket) {
+        return bucket.label + ' ' + num(bucket.total, 2)
+          + (bucket.unit === '%' ? '%' : (bucket.unit ? ' ' + bucket.unit : ''));
+      }).join('; '));
+    }
+    return lines.join('\n');
+  }
+
+  /* navigator.clipboard needs a secure context, which file:// is not, so fall
+     back to a hidden textarea and execCommand there. */
+  function copyText(text, done) {
+    function fallback() {
+      var area = el('textarea', { style: 'position:fixed;top:0;left:0;opacity:0', readonly: 'readonly' });
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      area.remove();
+      done(ok);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+    } else {
+      fallback();
+    }
+  }
+
   function renderLoadout(view) {
     var totalItems = state.loadout.reduce(function (sum, row) { return sum + row.count; }, 0);
 
@@ -757,9 +813,19 @@
         state.loadout = [];
         state.sampled = false;
         store.set('loadout', state.loadout);
+        store.set('buildFor', null);
         render();
       });
       controls.appendChild(clearBtn);
+
+      var copyBtn = el('button', { 'class': 'btn', type: 'button', text: 'Copy build' });
+      copyBtn.addEventListener('click', function () {
+        copyText(buildAsText(), function (ok) {
+          copyBtn.textContent = ok ? 'Copied' : 'Copy failed';
+          window.setTimeout(function () { copyBtn.textContent = 'Copy build'; }, 1400);
+        });
+      });
+      controls.appendChild(copyBtn);
     }
     view.appendChild(controls);
 
@@ -855,43 +921,56 @@
 
   /* ------------------------------------------------------- survivors view */
 
+  function setSurvivor(name) {
+    state.survivor = name;
+    state.level = 1;
+    store.set('survivor', name);
+    render();
+  }
+
+  function crewMatches(survivor) {
+    if (!state.crewQuery) return true;
+    var build = BUILDS[survivor.name];
+    var hay = [survivor.name, survivor.desc, survivor.expansion, build && build.role]
+      .join(' ').toLowerCase();
+    return hay.indexOf(state.crewQuery.toLowerCase()) >= 0;
+  }
+
   function renderSurvivors(view) {
     view.appendChild(el('div', { 'class': 'view__head' }, [
       el('h1', { text: 'Survivors' }),
       el('span', { 'class': 'view__count', text: D.survivors.length + ' playable' }),
       el('p', {
         'class': 'view__note',
-        text: 'Base stats with the per-level scaling the game applies, plus every '
-            + 'loadout skill and what unlocks it.'
+        text: 'Base stats with the per-level scaling the game applies, every '
+            + 'loadout skill and what unlocks it, and a recommended build.'
       })
     ]));
 
-    var grid = el('div', { 'class': 'grid' });
-    D.survivors.forEach(function (survivor) {
-      var meta = el('div', { 'class': 'card__meta' }, [
-        el('span', { 'class': 'tag', text: survivor.health + ' HP' }),
-        el('span', { 'class': 'tag', text: survivor.damage + ' DMG' })
-      ]);
-      if (survivor.expansion && survivor.expansion !== 'Base game') {
-        meta.appendChild(el('span', { 'class': 'tag tag--dlc', text: dlcShort(survivor.expansion) }));
-      }
-      var card = el('button', {
-        'class': 'card', type: 'button',
-        style: '--tier:var(--accent)',
-        'aria-current': String(state.survivor === survivor.name)
-      }, [
-        el('div', { 'class': 'card__name', style: 'color:var(--ink)', text: survivor.name }),
-        el('div', { 'class': 'card__quote', text: survivor.desc || '' }),
-        meta
-      ]);
-      card.addEventListener('click', function () {
-        state.survivor = survivor.name;
-        state.level = 1;
-        render();
-      });
-      grid.appendChild(card);
+    var search = el('input', {
+      type: 'search', id: 'crew-search', value: state.crewQuery,
+      placeholder: 'Find a survivor…', 'aria-label': 'Search survivors'
     });
+    search.addEventListener('input', function () {
+      state.crewQuery = search.value;
+      paintGrid();
+    });
+    view.appendChild(el('div', { 'class': 'controls' }, [
+      el('div', { 'class': 'search' }, [icon(ICONS.search), search])
+    ]));
+
+    var grid = el('div', { 'class': 'grid' });
     view.appendChild(grid);
+
+    function paintGrid() {
+      clear(grid);
+      var list = D.survivors.filter(crewMatches);
+      if (!list.length) {
+        grid.appendChild(el('p', { 'class': 'empty', text: 'No survivor matches that search.' }));
+      }
+      list.forEach(function (survivor) { grid.appendChild(survivorCard(survivor)); });
+    }
+    paintGrid();
 
     if (!state.survivor) return;
     var chosen = D.survivors.filter(function (s) { return s.name === state.survivor; })[0];
@@ -908,6 +987,28 @@
     });
   }
 
+  function survivorCard(survivor) {
+    var meta = el('div', { 'class': 'card__meta' }, [
+      el('span', { 'class': 'tag', text: survivor.health + ' HP' }),
+      el('span', { 'class': 'tag', text: survivor.damage + ' DMG' })
+    ]);
+    if (survivor.expansion && survivor.expansion !== 'Base game') {
+      meta.appendChild(el('span', { 'class': 'tag tag--dlc', text: dlcShort(survivor.expansion) }));
+    }
+    if (BUILDS[survivor.name]) meta.appendChild(el('span', { 'class': 'tag tag--dlc', text: 'Build' }));
+    var card = el('button', {
+      'class': 'card', type: 'button',
+      style: '--tier:var(--accent)',
+      'aria-current': String(state.survivor === survivor.name)
+    }, [
+      el('div', { 'class': 'card__name', style: 'color:var(--ink)', text: survivor.name }),
+      el('div', { 'class': 'card__quote', text: survivor.desc || '' }),
+      meta
+    ]);
+    card.addEventListener('click', function () { setSurvivor(survivor.name); });
+    return card;
+  }
+
   function survivorPanel(survivor) {
     var panel = el('div', { 'class': 'panel', style: 'margin-top:20px' });
 
@@ -915,7 +1016,7 @@
       el('h1', { style: 'font-size:20px', text: survivor.name })
     ]);
     var close = el('button', { 'class': 'iconbtn', type: 'button', 'aria-label': 'Close survivor details' }, [icon(ICONS.close)]);
-    close.addEventListener('click', function () { state.survivor = null; render(); });
+    close.addEventListener('click', function () { setSurvivor(null); });
     head.appendChild(close);
     panel.appendChild(head);
 
@@ -925,6 +1026,10 @@
         text: 'Umbra: “' + survivor.umbra + '”'
       }));
     }
+
+    /* The build comes first: mid-run it is what you opened the panel for. */
+    var build = BUILDS[survivor.name];
+    if (build) panel.appendChild(buildBlock(survivor, build));
 
     /* level scaling: stat = base + scaling x (level - 1) */
     var slider = el('input', {
@@ -988,6 +1093,168 @@
     }
 
     return panel;
+  }
+
+  /* ---------------------------------------------------------- build guides */
+
+  var ROLE_LABEL = {
+    damage: 'Damage', onHit: 'On-hit', sustain: 'Sustain',
+    defense: 'Defense', mobility: 'Mobility'
+  };
+
+  /* "Load this build" has to pick stack counts. These are a plausible mid-run
+     inventory, not a claim about the right number; the planner shows it as an
+     editable starting point. */
+  var LOAD_COUNT = { 'Common': 5, 'Uncommon': 3, 'Void': 3 };
+
+  function buildItemsFor(build, fun) {
+    var ids = [];
+    if (fun) {
+      ids = (build.fun && build.fun.items) || [];
+    } else {
+      Object.keys(ROLE_LABEL).forEach(function (role) {
+        ids = ids.concat((build.core && build.core[role]) || []);
+      });
+      ids = ids.concat((build.legendaries || []).slice(0, 2),
+        (build.boss || []).slice(0, 1), (build.equipment || []).slice(0, 1));
+    }
+    var seen = {};
+    return ids.filter(function (id) {
+      if (!BY_ID[id] || seen[id]) return false;
+      seen[id] = true;
+      return true;
+    }).map(function (id) {
+      var entry = BY_ID[id];
+      return { name: entry.name, count: LOAD_COUNT[entry.tier] || 1 };
+    });
+  }
+
+  function loadBuild(survivorName, build, fun) {
+    var rows = buildItemsFor(build, fun);
+    if (!rows.length) return;
+    if (state.loadout.length && !state.sampled) {
+      var label = fun && build.fun ? build.fun.name : survivorName + ' build';
+      if (!window.confirm('Replace your current build with the ' + label + '?')) return;
+    }
+    state.loadout = rows;
+    state.sampled = false;
+    store.set('loadout', state.loadout);
+    store.set('buildFor', survivorName);
+    go('loadout');
+  }
+
+  /** A named item chip that opens the item drawer (and its stack maths). */
+  function buildItem(id) {
+    var entry = BY_ID[id];
+    if (!entry) return null;
+    var src = iconURL(entry);
+    var chip = el('button', {
+      'class': 'bitem', type: 'button',
+      title: entry.name + ' — ' + entry.tier,
+      style: '--tier:' + tierColor(entry.tier)
+    }, [
+      src ? el('img', { 'class': 'bitem__icon', src: src, alt: '', loading: 'lazy', decoding: 'async' }) : null,
+      el('span', { text: entry.name })
+    ]);
+    chip.addEventListener('click', function () { select(entry.name); });
+    return chip;
+  }
+
+  function buildItems(ids) {
+    return el('div', { 'class': 'bitems' }, (ids || []).map(buildItem));
+  }
+
+  function buildGroup(label, children) {
+    return el('div', { 'class': 'bgroup' }, [el('h4', { 'class': 'group__h', text: label })].concat(children));
+  }
+
+  function buildBlock(survivor, build) {
+    var skillByName = {};
+    (survivor.skills || []).forEach(function (s) { skillByName[s.name] = s; });
+    function unlockOf(name) {
+      var skill = skillByName[name];
+      return skill && skill.unlock ? ' (unlock: ' + skill.unlock + ')' : '';
+    }
+
+    var block = el('div', { 'class': 'block build' }, [
+      el('h3', { 'class': 'block__h', text: 'Recommended build' }),
+      build.role ? el('p', { 'class': 'build__role', text: build.role }) : null,
+      build.unlock ? el('div', { 'class': 'skill__unlock', text: 'Unlock: ' + build.unlock }) : null
+    ]);
+
+    var actions = el('div', { 'class': 'build__actions' });
+    var loadBtn = el('button', { 'class': 'btn btn--primary', type: 'button' },
+      [icon(ICONS.loadout), el('span', { text: 'Load into Build Planner' })]);
+    loadBtn.addEventListener('click', function () { loadBuild(survivor.name, build, false); });
+    actions.appendChild(loadBtn);
+    block.appendChild(actions);
+
+    if (build.loadout && build.loadout.length) {
+      block.appendChild(buildGroup('Loadout', build.loadout.map(function (slot) {
+        return el('div', { 'class': 'skill' }, [
+          el('div', { 'class': 'skill__top' }, [
+            el('span', { 'class': 'skill__type', text: slot.slot }),
+            el('span', { 'class': 'skill__name', text: slot.pick })
+          ]),
+          slot.note ? el('div', { 'class': 'skill__desc', text: slot.note }) : null,
+          unlockOf(slot.pick) ? el('div', { 'class': 'skill__unlock', text: 'Needs' + unlockOf(slot.pick) }) : null
+        ].concat((slot.alts || []).map(function (alt) {
+          return el('div', { 'class': 'skill__unlock', text: 'Alt: ' + alt.name
+            + (alt.note ? ' — ' + alt.note : '') + unlockOf(alt.name) });
+        })));
+      })));
+    }
+
+    var core = Object.keys(ROLE_LABEL).filter(function (role) {
+      return build.core && build.core[role] && build.core[role].length;
+    });
+    if (core.length) {
+      block.appendChild(buildGroup('Core items', core.map(function (role) {
+        return el('div', { 'class': 'brole' }, [
+          el('span', { 'class': 'brole__k', text: ROLE_LABEL[role] }),
+          buildItems(build.core[role])
+        ]);
+      })));
+    }
+
+    [['Legendaries', build.legendaries], ['Boss items', build.boss], ['Equipment', build.equipment]]
+      .forEach(function (pair) {
+        if (pair[1] && pair[1].length) block.appendChild(buildGroup(pair[0], [buildItems(pair[1])]));
+      });
+
+    if (build.avoid && build.avoid.length) {
+      block.appendChild(buildGroup('Skip', build.avoid.map(function (row) {
+        return el('div', { 'class': 'bskip' }, [
+          buildItem(row.id),
+          el('span', { 'class': 'bskip__why', text: row.why })
+        ]);
+      })));
+    }
+
+    if (build.tips && build.tips.length) {
+      block.appendChild(buildGroup('Tips', [
+        el('ul', { 'class': 'btips' }, build.tips.map(function (tip) { return el('li', { text: tip }); }))
+      ]));
+    }
+
+    if (build.fun) {
+      var funBtn = el('button', { 'class': 'btn', type: 'button' },
+        [icon(ICONS.loadout), el('span', { text: 'Load this one' })]);
+      funBtn.addEventListener('click', function () { loadBuild(survivor.name, build, true); });
+      block.appendChild(buildGroup('For fun: ' + build.fun.name, [
+        build.fun.how ? el('div', { 'class': 'skill__desc', text: build.fun.how }) : null,
+        buildItems(build.fun.items),
+        el('div', null, [funBtn])
+      ]));
+    }
+
+    var meta = window.ROR2_BUILDS || {};
+    var foot = 'Based on ' + (meta.patch || 'the current patch')
+      + (meta.checked ? ', checked ' + meta.checked : '') + '.';
+    if (build.disagreements) foot += ' Sources disagree: ' + build.disagreements;
+    block.appendChild(el('p', { 'class': 'callout', text: foot }));
+
+    return block;
   }
 
   /* ------------------------------------------------------- artifacts view */
@@ -1208,6 +1475,8 @@
             + ' — ' + D.items.length + ' items, ' + D.equipment.length + ' equipment, '
             + D.survivors.length + ' survivors, ' + D.challenges.length + ' challenges. '
             + 'Regenerate with <code>tools/build_data.py</code>.'
+            + (window.ROR2_BUILDS ? ' Survivor builds are hand-curated in <code>data/ror2-builds.js</code>'
+              + (window.ROR2_BUILDS.patch ? ' (' + window.ROR2_BUILDS.patch + ')' : '') + '.' : '')
       })
     ]));
     main.scrollTop = 0;

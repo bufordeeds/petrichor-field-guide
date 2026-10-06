@@ -1025,6 +1025,93 @@
     return lines.join('\n');
   }
 
+  /* ----------------------------------------------------- shareable links */
+
+  /* A build travels in the URL fragment, so nothing is sent to the server:
+     #s=Engineer&r=Crowbar.2,Squid.1&t=...  Items are wiki ids with a count;
+     t (a custom target) is only included when the survivor has one. */
+  function encodeRows(rows) {
+    return rows.filter(function (row) { return BY_NAME[row.name] && BY_NAME[row.name].id; })
+      .map(function (row) { return BY_NAME[row.name].id + '.' + row.count; }).join(',');
+  }
+
+  function decodeRows(text) {
+    if (!text) return [];
+    return text.split(',').map(function (part) {
+      var at = part.lastIndexOf('.');
+      var entry = BY_ID[at > 0 ? part.slice(0, at) : part];
+      var count = parseInt(at > 0 ? part.slice(at + 1) : '1', 10);
+      return entry ? { name: entry.name, count: Math.max(1, Math.min(count || 1, 999)) } : null;
+    }).filter(Boolean);
+  }
+
+  function shareURL() {
+    var params = [];
+    if (state.runSurvivor) params.push('s=' + encodeURIComponent(state.runSurvivor));
+    if (state.loadout.length) params.push('r=' + encodeURIComponent(encodeRows(state.loadout)));
+    if (state.runSurvivor && state.targets[state.runSurvivor]) {
+      params.push('t=' + encodeURIComponent(encodeRows(state.targets[state.runSurvivor])));
+    }
+    return location.href.split('#')[0] + '#' + params.join('&');
+  }
+
+  function readSharedBuild() {
+    var hash = location.hash.replace(/^#/, '');
+    if (!/(^|&)(s|r)=/.test(hash)) return null;
+    var params = {};
+    hash.split('&').forEach(function (pair) {
+      var eq = pair.indexOf('=');
+      if (eq > 0) {
+        try { params[pair.slice(0, eq)] = decodeURIComponent(pair.slice(eq + 1)); } catch (e) { /* skip */ }
+      }
+    });
+    var survivor = D.survivors.some(function (s) { return s.name === params.s; }) ? params.s : null;
+    var run = decodeRows(params.r);
+    var target = params.t ? decodeRows(params.t) : null;
+    if (!survivor && !run.length) return null;
+    return { survivor: survivor, run: run, target: target && target.length ? target : null };
+  }
+
+  function clearShareHash() {
+    try { history.replaceState(null, '', location.href.split('#')[0]); } catch (e) { location.hash = ''; }
+  }
+
+  function acceptShare(share) {
+    if (state.loadout.length && !state.sampled
+        && !window.confirm('Replace your current run with the shared build?')) return;
+    state.loadout = share.run.slice();
+    state.sampled = false;
+    store.set('loadout', state.loadout);
+    if (share.survivor) {
+      state.runSurvivor = share.survivor;
+      store.set('runSurvivor', share.survivor);
+      if (share.target) {
+        state.targets[share.survivor] = share.target;
+        store.set('targets', state.targets);
+      }
+    }
+    state.share = null;
+    clearShareHash();
+    render();
+  }
+
+  function sharePanel(share) {
+    var count = share.run.reduce(function (sum, row) { return sum + row.count; }, 0);
+    var loadBtn = el('button', { 'class': 'btn btn--primary', type: 'button', text: 'Load it' });
+    loadBtn.addEventListener('click', function () { acceptShare(share); });
+    var dismiss = el('button', { 'class': 'btn btn--ghost', type: 'button', text: 'No thanks' });
+    dismiss.addEventListener('click', function () { state.share = null; clearShareHash(); render(); });
+    return el('div', { 'class': 'panel target' }, [
+      el('h2', { 'class': 'block__h', text: 'Someone shared a build' }),
+      el('p', { 'class': 'build__role', text: (share.survivor || 'No survivor') + ' · ' + count
+        + (count === 1 ? ' item' : ' items') + (share.target ? ' · with their own target' : '') }),
+      share.run.length ? buildItems(share.run.map(function (row) { return BY_NAME[row.name].id; })) : null,
+      el('p', { 'class': 'callout', text: 'Loading replaces the run you are tracking here. '
+        + (share.survivor && share.target ? 'Their target replaces your saved ' + share.survivor + ' target.' : '') }),
+      el('div', { 'class': 'build__actions' }, [loadBtn, dismiss])
+    ]);
+  }
+
   /* navigator.clipboard needs a secure context, which file:// is not, so fall
      back to a hidden textarea and execCommand there. */
   function copyText(text, done) {
@@ -1120,6 +1207,17 @@
       });
       controls.appendChild(copyBtn);
     }
+    if (state.loadout.length || state.runSurvivor) {
+      var linkBtn = el('button', { 'class': 'btn', type: 'button', text: 'Copy link' });
+      linkBtn.addEventListener('click', function () {
+        copyText(shareURL(), function (ok) {
+          linkBtn.textContent = ok ? 'Link copied' : 'Copy failed';
+          window.setTimeout(function () { linkBtn.textContent = 'Copy link'; }, 1400);
+        });
+      });
+      controls.appendChild(linkBtn);
+    }
+    if (state.share) view.appendChild(sharePanel(state.share));
     view.appendChild(controls);
 
     if (state.sampled) {
@@ -1548,6 +1646,24 @@
     if (build.disagreements) foot += ' Sources disagree: ' + build.disagreements;
     block.appendChild(el('p', { 'class': 'callout', text: foot }));
 
+    if (build.sources && build.sources.length) {
+      var links = [];
+      build.sources.forEach(function (url) {
+        var label;
+        try {
+          var u = new URL(url);
+          label = u.hostname.replace(/^www\./, '');
+          /* Several wiki pages per build: name them by page, not by host. */
+          if (/wiki\.gg$/.test(u.hostname) && /\/wiki\/./.test(u.pathname)) {
+            label = 'wiki: ' + decodeURIComponent(u.pathname.split('/').pop()).replace(/_/g, ' ');
+          }
+        } catch (e) { return; }
+        if (links.length) links.push(', ');
+        links.push(el('a', { href: url, rel: 'noreferrer noopener', target: '_blank', title: url, text: label }));
+      });
+      if (links.length) block.appendChild(el('p', { 'class': 'build__sources' }, ['Sources: '].concat(links)));
+    }
+
     return block;
   }
 
@@ -1748,12 +1864,43 @@
 
   /* ----------------------------------------------------------------- render */
 
+  /* --------------------------------------------------------- what's new */
+
+  var CHANGES = (window.ROR2_CHANGELOG && window.ROR2_CHANGELOG.entries) || [];
+
+  /* Entries newer than the visitor's last look; a first visit counts none,
+     since everything is new and a badge would just be noise. */
+  function unseenChanges() {
+    var seen = store.get('changesSeen', null);
+    if (!seen) {
+      if (CHANGES.length) store.set('changesSeen', CHANGES[0].date);
+      return 0;
+    }
+    return CHANGES.filter(function (entry) { return entry.date > seen; }).length;
+  }
+
+  function renderChanges(view) {
+    view.appendChild(el('div', { 'class': 'view__head' }, [
+      el('h1', { text: 'What’s new' }),
+      el('span', { 'class': 'view__count', text: CHANGES.length + (CHANGES.length === 1 ? ' update' : ' updates') }),
+      el('p', { 'class': 'view__note', text: 'Changes to the guide, newest first.' })
+    ]));
+    CHANGES.forEach(function (entry) {
+      view.appendChild(el('div', { 'class': 'panel changes' }, [
+        el('h2', { 'class': 'block__h', text: entry.date + ' · ' + entry.title }),
+        el('ul', { 'class': 'btips' }, (entry.changes || []).map(function (c) { return el('li', { text: c }); }))
+      ]));
+    });
+    if (CHANGES.length) store.set('changesSeen', CHANGES[0].date);
+  }
+
   var RENDERERS = {
     items: renderItems,
     loadout: renderLoadout,
     survivors: renderSurvivors,
     artifacts: renderArtifacts,
-    unlocks: renderUnlocks
+    unlocks: renderUnlocks,
+    changes: renderChanges
   };
 
   function render(keepScroll) {
@@ -1763,7 +1910,16 @@
     var view = el('div', { 'class': 'view' });
     RENDERERS[state.tab](view);
     main.appendChild(view);
+
+    var unseen = CHANGES.length ? unseenChanges() : 0;
+    var newsBtn = CHANGES.length ? el('button', {
+      'class': 'linkish', type: 'button',
+      text: 'What’s new' + (unseen ? ' (' + unseen + ')' : '')
+    }) : null;
+    if (newsBtn) newsBtn.addEventListener('click', function () { go('changes'); });
+
     main.appendChild(el('footer', { 'class': 'foot' }, [
+      newsBtn ? el('div', { 'class': 'foot__news' }, [newsBtn]) : null,
       el('div', {
         html: 'Game data generated from the community wiki at '
             + '<a href="' + D.source + '" rel="noreferrer noopener">riskofrain2.wiki.gg</a>'
@@ -1776,6 +1932,20 @@
     ]));
     main.scrollTop = keepScroll ? top : 0;
   }
+
+  /* A shared build link opens on the Build tab with an offer to load it. */
+  function checkShare() {
+    var share = readSharedBuild();
+    if (!share) return false;
+    state.share = share;
+    state.tab = 'loadout';
+    TABS.forEach(function (tab) {
+      document.getElementById('tab-' + tab.id).setAttribute('aria-selected', String(tab.id === 'loadout'));
+    });
+    return true;
+  }
+  checkShare();
+  window.addEventListener('hashchange', function () { if (checkShare()) render(); });
 
   render();
 })();

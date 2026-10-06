@@ -77,9 +77,10 @@ def main() -> int:
     css = read("app.css")
     app = read("app.js")
     data = read("data/ror2-data.js")
-    builds_path = ROOT / "data" / "ror2-builds.js"
-    if builds_path.exists():
-        data += "\n" + builds_path.read_text(encoding="utf-8")
+    for extra in ("ror2-builds.js", "changelog.js"):
+        extra_path = ROOT / "data" / extra
+        if extra_path.exists():
+            data += "\n" + extra_path.read_text(encoding="utf-8")
     icons = icons_script()
 
     # A literal </script> anywhere in the data would close the tag early.

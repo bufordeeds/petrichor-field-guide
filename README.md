@@ -106,6 +106,21 @@ python3 tools/check_builds.py   # flags unknown item ids / skill names, lists su
 Bump the `?v=` query on the `<script>`/`<link>` tags in `index.html` when you
 deploy so phones pick up the new files instead of a cached copy.
 
+## What's new and shared builds
+
+`data/changelog.js` is the hand-written changelog, newest first. Add an entry
+for anything a visitor would notice; the footer's "What's new" link shows how
+many entries are newer than that visitor's last look.
+
+"Copy link" on the Build tab encodes the run, the tracked survivor and (if the
+survivor has one) a custom target into the URL fragment, e.g.
+`#s=Engineer&r=Mushroom.3,ChainLightning.2&t=Mushroom.5,Syringe.5` — item wiki
+ids with counts. Nothing is sent to the server. Opening such a link offers to
+load the build and never overwrites a run without asking.
+
+The personal note at the top of `index.html` only shows when the page is
+opened with `?mark`; that browser then keeps showing it until dismissed.
+
 ## Layout
 
 ```

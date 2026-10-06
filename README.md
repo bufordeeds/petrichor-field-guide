@@ -178,3 +178,8 @@ Deliberately classic `<script>` tags rather than ES modules, and data baked
 into a `.js` file rather than fetched as JSON — browsers block both module
 scripts and `fetch()` on `file://`, and offline-from-a-folder was a
 requirement.
+
+## License
+
+Code and hand-written data are [MIT](LICENSE). Game names, descriptions and
+art belong to Hopoo Games / Gearbox Publishing and are not covered.
